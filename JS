@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head><title>Arkanoid - JS</title><style>canvas{border:1px solid white; background:black;}</style></head>
+<body>
+<canvas id="canvas" width="800" height="600"></canvas>
+<div>Score: <span id="score">0</span> Lives: <span id="lives">3</span> Level: <span id="level">1</span></div>
+<button id="reset">Reset</button>
+<script src="arkanoid.js"></script>
+</body>
+</html>
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const W=800, H=600;
+let paddleX = W/2-50;
+let balls = [{x:W/2-6, y:H-70, dx:4, dy:-4}];
+let bricks = [];
+let score=0, lives=3, level=1, gameOver=false;
+let keys={left:false, right:false};
+const BRICK_W=60, BRICK_H=20, ROWS=5, COLS=12;
+
+function initLevel(){
+    bricks = [];
+    for(let row=0; row<ROWS; row++){
+        for(let col=0; col<COLS; col++){
+            let hp = row>=3 ? 2 : 1;
+            let color = `hsl(${row*30+col*5}, 70%, 60%)`;
+            bricks.push({x:col*BRICK_W+10, y:row*BRICK_H+50, w:BRICK_W-2, h:BRICK_H-2, hp, color});
+        }
+    }
+}
+
+function resetGame(){
+    score=0; lives=3; level=1; gameOver=false;
+    paddleX = W/2-50;
+    balls = [{x:W/2-6, y:H-70, dx:4, dy:-4}];
+    initLevel();
+    updateDisplay();
+}
+
+function updateDisplay(){
+    document.getElementById('score').innerText = score;
+    document.getElementById('lives').innerText = lives;
+    document.getElementById('level').innerText = level;
+}
+
+document.addEventListener('keydown', (e)=>{
+    if(e.key==='ArrowLeft') keys.left=true;
+    if(e.key==='ArrowRight') keys.right=true;
+    if(e.key==='r' && gameOver) resetGame();
+});
+document.addEventListener('keyup', (e)=>{
+    if(e.key==='ArrowLeft') keys.left=false;
+    if(e.key==='ArrowRight') keys.right=false;
+});
+
+function update(){
+    if(gameOver) return;
+    // движение платформы
+    if(keys.left && paddleX>0) paddleX-=8;
+    if(keys.right && paddleX<W-100) paddleX+=8;
+    // мячи
+    for(let i=0; i<balls.length; i++){
+        let b = balls[i];
+        b.x += b.dx;
+        b.y += b.dy;
+        if(b.x<=0 || b.x+12>=W) b.dx *= -1;
+        if(b.y<=0) b.dy *= -1;
+        // платформа
+        if(b.y+12>=H-50 && b.y<=H-50+15 && b.x+12>=paddleX && b.x<=paddleX+100){
+            b.dy = -Math.abs(b.dy);
+            let offset = (b.x+6 - (paddleX+50))/50;
+            b.dx = offset*6;
+        }
+        // кирпичи
+        for(let j=0; j<bricks.length; j++){
+            let br = bricks[j];
+            if(b.x+12>=br.x && b.x<=br.x+br.w && b.y+12>=br.y && b.y<=br.y+br.h){
+                b.dy *= -1;
+                br.hp--;
+                if(br.hp<=0){
+                    bricks.splice(j,1);
+                    score+=10;
+                    updateDisplay();
+                }
+                break;
+            }
+        }
+        // вылет
+        if(b.y+12>H){
+            balls.splice(i,1);
+            i--;
+        }
+    }
+    if(balls.length===0){
+        lives--;
+        updateDisplay();
+        if(lives<=0){
+            gameOver=true;
+        } else {
+            balls.push({x:W/2-6, y:H-70, dx:4, dy:-4});
+        }
+    }
+    if(bricks.length===0){
+        level++;
+        updateDisplay();
+        initLevel();
+        for(let br of bricks) br.hp++;
+        balls = [{x:W/2-6, y:H-70, dx:4, dy:-4}];
+    }
+    draw();
+}
+
+function draw(){
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='white';
+    ctx.fillRect(paddleX, H-50, 100, 15);
+    for(let b of balls) ctx.fillRect(b.x, b.y, 12, 12);
+    for(let br of bricks){
+        ctx.fillStyle=br.color;
+        ctx.fillRect(br.x, br.y, br.w, br.h);
+    }
+    ctx.fillStyle='white';
+    ctx.font='20px monospace';
+    ctx.fillText(`Score: ${score} Lives: ${lives} Level: ${level}`, 10, 30);
+    if(gameOver){
+        ctx.fillStyle='red';
+        ctx.fillText('GAME OVER - Press R', W/2-120, H/2);
+    }
+}
+
+initLevel();
+setInterval(update, 1000/60);
