@@ -1,0 +1,199 @@
+package main
+
+import (
+    "image/color"
+    "log"
+    "math/rand"
+    "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/inpututil"
+)
+
+const (
+    screenW = 800
+    screenH = 600
+    paddleW = 100
+    paddleH = 15
+    ballSize = 12
+    brickW = 60
+    brickH = 20
+    rows = 5
+    cols = 12
+)
+
+var (
+    black = color.Black
+    white = color.White
+    red   = color.RGBA{255,0,0,255}
+    green = color.RGBA{0,255,0,255}
+    blue  = color.RGBA{0,0,255,255}
+)
+
+type Brick struct {
+    x, y     int
+    hp       int
+    color    color.Color
+}
+
+type Game struct {
+    paddleX   int
+    balls     []Ball
+    bricks    []Brick
+    score     int
+    lives     int
+    level     int
+    gameOver  bool
+    bonuses   []Bonus
+}
+
+type Ball struct {
+    x, y, dx, dy float64
+    speedMult    float64
+}
+
+type Bonus struct {
+    x, y int
+    kind int
+}
+
+func NewGame() *Game {
+    g := &Game{lives: 3, level: 1}
+    g.initBricks()
+    g.resetBall()
+    return g
+}
+
+func (g *Game) initBricks() {
+    g.bricks = nil
+    for row := 0; row < rows; row++ {
+        for col := 0; col < cols; col++ {
+            hp := 1
+            if row >= 3 { hp = 2 }
+            color := []color.Color{red, color.RGBA{255,165,0,255}, color.RGBA{255,255,0,255}, green, blue}[row%5]
+            g.bricks = append(g.bricks, Brick{x: col*brickW + 10, y: row*brickH + 50, hp: hp, color: color})
+        }
+    }
+}
+
+func (g *Game) resetBall() {
+    g.balls = []Ball{{
+        x: float64(screenW/2 - ballSize/2),
+        y: float64(screenH - 70),
+        dx: 4 * float64(rand.Intn(2)*2-1),
+        dy: -4,
+        speedMult: 1.0,
+    }}
+}
+
+func (g *Game) Update() error {
+    if g.gameOver {
+        if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+            g.gameOver = false
+            g.score = 0
+            g.lives = 3
+            g.level = 1
+            g.initBricks()
+            g.resetBall()
+        }
+        return nil
+    }
+    // управление платформой
+    if ebiten.IsKeyPressed(ebiten.KeyLeft) {
+        g.paddleX -= 8
+    }
+    if ebiten.IsKeyPressed(ebiten.KeyRight) {
+        g.paddleX += 8
+    }
+    if g.paddleX < 0 { g.paddleX = 0 }
+    if g.paddleX > screenW-paddleW { g.paddleX = screenW-paddleW }
+    // мячи
+    for i := 0; i < len(g.balls); i++ {
+        b := &g.balls[i]
+        b.x += b.dx * b.speedMult
+        b.y += b.dy * b.speedMult
+        // стены
+        if b.x <= 0 || b.x+ballSize >= screenW { b.dx *= -1 }
+        if b.y <= 0 { b.dy *= -1 }
+        // платформа
+        if b.y+ballSize >= float64(screenH-50) && b.y <= float64(screenH-50+paddleH) &&
+           b.x+ballSize >= float64(g.paddleX) && b.x <= float64(g.paddleX+paddleW) {
+            b.dy = -abs(b.dy)
+            offset := (b.x+ballSize/2 - float64(g.paddleX+paddleW/2)) / (float64(paddleW)/2)
+            b.dx = offset * 6
+            b.speedMult += 0.02
+        }
+        // вылет
+        if b.y+ballSize > screenH {
+            g.balls = append(g.balls[:i], g.balls[i+1:]...)
+            i--
+        }
+    }
+    if len(g.balls) == 0 {
+        g.lives--
+        if g.lives <= 0 {
+            g.gameOver = true
+        } else {
+            g.resetBall()
+        }
+    }
+    // столкновения с кирпичами
+    for i := 0; i < len(g.balls); i++ {
+        b := &g.balls[i]
+        for j := 0; j < len(g.bricks); j++ {
+            br := &g.bricks[j]
+            if b.x+ballSize >= float64(br.x) && b.x <= float64(br.x+brickW) &&
+               b.y+ballSize >= float64(br.y) && b.y <= float64(br.y+brickH) {
+                b.dy *= -1
+                br.hp--
+                if br.hp <= 0 {
+                    g.bricks = append(g.bricks[:j], g.bricks[j+1:]...)
+                    g.score += 10
+                }
+                break
+            }
+        }
+    }
+    // следующий уровень
+    if len(g.bricks) == 0 {
+        g.level++
+        g.initBricks()
+        for i := range g.bricks {
+            g.bricks[i].hp++
+        }
+        g.resetBall()
+    }
+    return nil
+}
+
+func (g *Game) Draw(screen *ebiten.Image) {
+    screen.Fill(black)
+    // платформа
+    ebitenutil.DrawRect(screen, float64(g.paddleX), float64(screenH-50), paddleW, paddleH, white)
+    // мячи
+    for _, b := range g.balls {
+        ebitenutil.DrawRect(screen, b.x, b.y, ballSize, ballSize, white)
+    }
+    // кирпичи
+    for _, br := range g.bricks {
+        ebitenutil.DrawRect(screen, float64(br.x), float64(br.y), brickW-1, brickH-1, br.color)
+    }
+    // текст
+    ebitenutil.DebugPrintAt(screen, formatInt(g.score, g.lives, g.level), 10, 10)
+    if g.gameOver {
+        ebitenutil.DebugPrintAt(screen, "GAME OVER - Press R", screenW/2-100, screenH/2)
+    }
+}
+
+func formatInt(score, lives, level int) string { return "Score: " + itoa(score) + " Lives: " + itoa(lives) + " Level: " + itoa(level) }
+func itoa(n int) string { return string(rune(n+'0')) }
+func abs(x float64) float64 { if x<0 {return -x}; return x }
+
+func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) { return screenW, screenH }
+
+func main() {
+    rand.Seed(0)
+    ebiten.SetWindowSize(screenW, screenH)
+    ebiten.SetWindowTitle("Arkanoid - Go")
+    if err := ebiten.RunGame(NewGame()); err != nil {
+        log.Fatal(err)
+    }
+}
