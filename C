@@ -1,0 +1,116 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using System.Collections.Generic;
+
+public class ArkanoidForm : Form
+{
+    private Timer timer;
+    private float paddleX;
+    private List<Ball> balls = new List<Ball>();
+    private List<Brick> bricks = new List<Brick>();
+    private int score = 0, lives = 3, level = 1;
+    private bool gameOver = false;
+    private Random rand = new Random();
+    private const int W = 800, H = 600, PADDLE_W = 100, PADDLE_H = 15, BALL_SIZE = 12, BRICK_W = 60, BRICK_H = 20;
+
+    public ArkanoidForm()
+    {
+        this.Text = "Arkanoid - C#";
+        this.ClientSize = new Size(W, H);
+        this.DoubleBuffered = true;
+        this.KeyPreview = true;
+        this.KeyDown += OnKeyDown;
+        this.Paint += OnPaint;
+        InitLevel();
+        timer = new Timer { Interval = 16 };
+        timer.Tick += (s, e) => Update();
+        timer.Start();
+    }
+
+    private void InitLevel()
+    {
+        paddleX = W/2 - PADDLE_W/2;
+        balls.Clear();
+        balls.Add(new Ball(W/2, H-70, rand.Next(2)==0?4:-4, -4));
+        bricks.Clear();
+        for(int row=0; row<5; row++)
+            for(int col=0; col<12; col++)
+            {
+                int hp = row>=3?2:1;
+                Color colr = Color.FromArgb(255, 100+row*30, 200-row*30, 100);
+                bricks.Add(new Brick(col*BRICK_W+10, row*BRICK_H+50, hp, colr));
+            }
+    }
+
+    private void Update()
+    {
+        if(gameOver) return;
+        // управление
+        if(IsKeyDown(Keys.Left)) paddleX -= 8;
+        if(IsKeyDown(Keys.Right)) paddleX += 8;
+        paddleX = Math.Clamp(paddleX, 0, W-PADDLE_W);
+        for(int i=0; i<balls.Count; i++)
+        {
+            var b = balls[i];
+            b.Move();
+            if(b.X <=0 || b.X+BALL_SIZE>=W) b.Dx *= -1;
+            if(b.Y <=0) b.Dy *= -1;
+            // платформа
+            if(b.Y+BALL_SIZE >= H-50 && b.Y <= H-50+PADDLE_H && b.X+BALL_SIZE >= paddleX && b.X <= paddleX+PADDLE_W)
+            {
+                b.Dy = -Math.Abs(b.Dy);
+                float offset = (b.X+BALL_SIZE/2 - (paddleX+PADDLE_W/2)) / (PADDLE_W/2);
+                b.Dx = offset * 6;
+            }
+            // кирпичи
+            for(int j=0; j<bricks.Count; j++)
+            {
+                var br = bricks[j];
+                if(b.X+BALL_SIZE >= br.X && b.X <= br.X+BRICK_W && b.Y+BALL_SIZE >= br.Y && b.Y <= br.Y+BRICK_H)
+                {
+                    b.Dy *= -1;
+                    br.Hp--;
+                    if(br.Hp<=0) { bricks.RemoveAt(j); score+=10; j--; }
+                    break;
+                }
+            }
+            if(b.Y+BALL_SIZE > H) { balls.RemoveAt(i); i--; }
+        }
+        if(balls.Count==0)
+        {
+            lives--;
+            if(lives<=0) gameOver=true;
+            else balls.Add(new Ball(W/2, H-70, rand.Next(2)==0?4:-4, -4));
+        }
+        if(bricks.Count==0)
+        {
+            level++;
+            InitLevel();
+            foreach(var br in bricks) br.Hp++;
+        }
+        Invalidate();
+    }
+
+    private void OnPaint(object sender, PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(Color.Black);
+        g.FillRectangle(Brushes.White, paddleX, H-50, PADDLE_W, PADDLE_H);
+        foreach(var b in balls) g.FillRectangle(Brushes.White, b.X, b.Y, BALL_SIZE, BALL_SIZE);
+        foreach(var br in bricks) g.FillRectangle(new SolidBrush(br.Color), br.X, br.Y, BRICK_W-1, BRICK_H-1);
+        g.DrawString($"Score: {score}  Lives: {lives}  Level: {level}", new Font("Arial",16), Brushes.White, 10,10);
+        if(gameOver) g.DrawString("GAME OVER - Press R", new Font("Arial",24), Brushes.Red, W/2-120, H/2);
+    }
+
+    private void OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if(e.KeyCode == Keys.R && gameOver) { score=0; lives=3; level=1; gameOver=false; InitLevel(); }
+    }
+    private bool IsKeyDown(Keys key) => (Control.ModifierKeys & (Keys)key) != 0; // упрощённо
+
+    class Ball { public float X,Y,Dx,Dy; public Ball(float x,float y,float dx,float dy){X=x;Y=y;Dx=dx;Dy=dy;} public void Move(){X+=Dx;Y+=Dy;} }
+    class Brick { public int X,Y,Hp; public Color Color; public Brick(int x,int y,int hp,Color c){X=x;Y=y;Hp=hp;Color=c;} }
+
+    [STAThread] static void Main() { Application.Run(new ArkanoidForm()); }
+}
