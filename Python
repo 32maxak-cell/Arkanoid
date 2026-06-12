@@ -1,0 +1,227 @@
+
+### 1. Python (Pygame)
+
+**`python/arkanoid.py`**
+
+```python
+import pygame
+import sys
+import random
+import math
+
+pygame.init()
+WIDTH, HEIGHT = 800, 600
+BALL_SIZE = 12
+PADDLE_W, PADDLE_H = 100, 15
+BRICK_W, BRICK_H = 60, 20
+ROWS, COLS = 5, 12
+FPS = 60
+
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Arkanoid - Python")
+clock = pygame.time.Clock()
+
+# Цвета
+BLACK = (0,0,0)
+WHITE = (255,255,255)
+RED = (255,0,0)
+GREEN = (0,255,0)
+BLUE = (0,0,255)
+YELLOW = (255,255,0)
+ORANGE = (255,165,0)
+
+# Бонусы
+BONUS_EXPAND = 1
+BONUS_SPEED = 2
+BONUS_EXTRA_BALL = 3
+
+class Brick:
+    def __init__(self, x, y, hp=1, color=RED):
+        self.rect = pygame.Rect(x, y, BRICK_W-2, BRICK_H-2)
+        self.hp = hp
+        self.color = color
+    def draw(self):
+        pygame.draw.rect(screen, self.color, self.rect)
+    def hit(self):
+        self.hp -= 1
+        return self.hp <= 0
+
+class Paddle:
+    def __init__(self):
+        self.width = PADDLE_W
+        self.rect = pygame.Rect(WIDTH//2 - PADDLE_W//2, HEIGHT-50, PADDLE_W, PADDLE_H)
+    def move(self, dx):
+        self.rect.x += dx
+        if self.rect.left < 0: self.rect.left = 0
+        if self.rect.right > WIDTH: self.rect.right = WIDTH
+    def draw(self):
+        pygame.draw.rect(screen, WHITE, self.rect)
+    def expand(self):
+        self.width = min(200, self.width + 30)
+        self.rect.width = self.width
+    def shrink(self):
+        self.width = max(60, self.width - 20)
+        self.rect.width = self.width
+
+class Ball:
+    def __init__(self):
+        self.rect = pygame.Rect(WIDTH//2 - BALL_SIZE//2, HEIGHT-70, BALL_SIZE, BALL_SIZE)
+        self.dx = 4 * random.choice([-1,1])
+        self.dy = -4
+        self.speed_mult = 1.0
+    def move(self):
+        self.rect.x += self.dx * self.speed_mult
+        self.rect.y += self.dy * self.speed_mult
+        # отскок от стен
+        if self.rect.left <= 0 or self.rect.right >= WIDTH:
+            self.dx *= -1
+        if self.rect.top <= 0:
+            self.dy *= -1
+    def draw(self):
+        pygame.draw.rect(screen, WHITE, self.rect)
+    def reset(self, paddle):
+        self.rect.centerx = paddle.rect.centerx
+        self.rect.bottom = paddle.rect.top - 5
+        self.dx = 4 * random.choice([-1,1])
+        self.dy = -4
+        self.speed_mult = 1.0
+
+class Bonus:
+    def __init__(self, x, y, kind):
+        self.rect = pygame.Rect(x, y, 20, 20)
+        self.kind = kind
+        self.active = True
+    def move(self):
+        self.rect.y += 3
+    def draw(self):
+        color = {BONUS_EXPAND: GREEN, BONUS_SPEED: YELLOW, BONUS_EXTRA_BALL: BLUE}[self.kind]
+        pygame.draw.rect(screen, color, self.rect)
+
+def create_bricks():
+    bricks = []
+    colors = [RED, ORANGE, YELLOW, GREEN, BLUE]
+    for row in range(ROWS):
+        for col in range(COLS):
+            x = col * BRICK_W + 10
+            y = row * BRICK_H + 50
+            hp = 1 if row < 3 else 2  # нижние ряды прочнее
+            brick = Brick(x, y, hp, colors[row % len(colors)])
+            bricks.append(brick)
+    return bricks
+
+def main():
+    paddle = Paddle()
+    balls = [Ball()]
+    bricks = create_bricks()
+    score = 0
+    lives = 3
+    level = 1
+    bonuses = []
+    game_over = False
+    running = True
+    mouse_control = True
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r and game_over:
+                    game_over = False
+                    paddle = Paddle()
+                    balls = [Ball()]
+                    bricks = create_bricks()
+                    score = 0
+                    lives = 3
+                    level = 1
+                    bonuses = []
+                if event.key == pygame.K_m:
+                    mouse_control = not mouse_control
+        # управление
+        if mouse_control:
+            mouse_x = pygame.mouse.get_pos()[0]
+            paddle.rect.centerx = mouse_x
+            paddle.rect.clamp_ip(screen.get_rect())
+        else:
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_LEFT]: paddle.move(-8)
+            if keys[pygame.K_RIGHT]: paddle.move(8)
+        # мячи
+        for ball in balls[:]:
+            ball.move()
+            # отскок от платформы
+            if ball.rect.colliderect(paddle.rect):
+                ball.dy = -abs(ball.dy)
+                offset = (ball.rect.centerx - paddle.rect.centerx) / (paddle.rect.width/2)
+                ball.dx = offset * 6
+                ball.speed_mult += 0.02
+            # потеря мяча
+            if ball.rect.top > HEIGHT:
+                balls.remove(ball)
+                if not balls:
+                    lives -= 1
+                    if lives <= 0:
+                        game_over = True
+                    else:
+                        balls.append(Ball())
+                        balls[0].reset(paddle)
+            # столкновение с кирпичами
+            for brick in bricks[:]:
+                if ball.rect.colliderect(brick.rect):
+                    ball.dy *= -1
+                    if brick.hit():
+                        bricks.remove(brick)
+                        score += 10 * (brick.hp + 1)
+                        # бонус с шансом 20%
+                        if random.random() < 0.2:
+                            bonus = Bonus(brick.rect.centerx, brick.rect.centery,
+                                          random.choice([BONUS_EXPAND, BONUS_SPEED, BONUS_EXTRA_BALL]))
+                            bonuses.append(bonus)
+                    break
+        # бонусы
+        for bonus in bonuses[:]:
+            bonus.move()
+            if bonus.rect.colliderect(paddle.rect):
+                if bonus.kind == BONUS_EXPAND:
+                    paddle.expand()
+                elif bonus.kind == BONUS_SPEED:
+                    for b in balls:
+                        b.speed_mult = min(2.5, b.speed_mult + 0.3)
+                elif bonus.kind == BONUS_EXTRA_BALL:
+                    new_ball = Ball()
+                    new_ball.rect.center = paddle.rect.center
+                    new_ball.dy = -4
+                    new_ball.dx = random.choice([-3,3])
+                    balls.append(new_ball)
+                bonuses.remove(bonus)
+            elif bonus.rect.top > HEIGHT:
+                bonuses.remove(bonus)
+        # следующий уровень
+        if not bricks:
+            level += 1
+            bricks = create_bricks()
+            for brick in bricks:
+                brick.hp += 1  # усложнение
+            balls = [Ball()]
+            balls[0].reset(paddle)
+
+        # отрисовка
+        screen.fill(BLACK)
+        paddle.draw()
+        for ball in balls: ball.draw()
+        for brick in bricks: brick.draw()
+        for bonus in bonuses: bonus.draw()
+        # счёт
+        font = pygame.font.Font(None, 36)
+        score_text = font.render(f"Score: {score}  Lives: {lives}  Level: {level}", True, WHITE)
+        screen.blit(score_text, (10, 10))
+        if game_over:
+            over_text = font.render("GAME OVER - Press R", True, RED)
+            screen.blit(over_text, (WIDTH//2-150, HEIGHT//2))
+        pygame.display.flip()
+        clock.tick(FPS)
+    pygame.quit()
+    sys.exit()
+
+if __name__ == "__main__":
+    main()
